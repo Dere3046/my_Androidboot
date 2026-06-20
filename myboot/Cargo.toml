@@ -1,0 +1,18 @@
+[package]
+name = "myboot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+paste = { workspace = true }
+num-traits = { workspace = true }
+
+bzip2 = { workspace = true }
+zopfli = { workspace = true }
+lz4 = { workspace = true }
+lzma-rust2 = { workspace = true }
+flate2 = { workspace = true }
+bytemuck = { workspace = true }
+ring = { workspace = true }

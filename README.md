@@ -1,0 +1,2 @@
+- https://github.com/topjohnwu/Magisk
+- https://github.com/5ec1cff/android_bootimg
