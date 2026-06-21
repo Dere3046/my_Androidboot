@@ -30,7 +30,17 @@ pub fn type_name(mode: u32) -> &'static str {
 
 pub fn perm_string(mode: u32) -> String {
     let mut s = String::with_capacity(10);
-    s.push(if mode & TYPE_DIR != 0 { 'd' } else if mode & TYPE_SYMLINK != 0 { 'l' } else { '-' });
+    let type_char = match mode & 0o170000 {
+        0o140000 => 's', // socket
+        0o120000 => 'l', // symlink
+        0o100000 => '-', // regular
+        0o060000 => 'b', // block device
+        0o040000 => 'd', // directory
+        0o020000 => 'c', // char device
+        0o010000 => 'p', // fifo
+        _ => '?',
+    };
+    s.push(type_char);
     s.push(if mode & 0o400 != 0 { 'r' } else { '-' });
     s.push(if mode & 0o200 != 0 { 'w' } else { '-' });
     s.push(if mode & 0o100 != 0 {
@@ -133,7 +143,16 @@ impl Cpio {
             let name = std::str::from_utf8(trim_nul(raw_name))?.to_string();
 
             if name == "TRAILER!!!" {
-                break;
+                let data_off = align_to(name_end, 4);
+                let data_end = data_off + filesize;
+                pos = align_to(data_end, 4);
+                while pos + 6 <= data.len() {
+                    if &data[pos..pos + 6] == CPIO_MAGIC {
+                        break;
+                    }
+                    pos += 1;
+                }
+                continue;
             }
             if name == "." || name == ".." {
                 let data_off = align_to(name_end, 4);
@@ -205,12 +224,6 @@ impl Cpio {
             0,
         )?;
 
-        let pos_after = 0u64;
-        let pad = align_padding(pos_after, 512);
-        if pad > 0 {
-            writer.write_all(&vec![0u8; pad as usize])?;
-        }
-
         Ok(())
     }
 
@@ -256,9 +269,11 @@ impl Cpio {
     pub fn mv(&mut self, from: &str, to: &str) -> Result<()> {
         let from = normalize_path(from);
         let to = normalize_path(to);
-        if let Some(entry) = self.entries.remove(&from) {
-            self.entries.insert(to, entry);
-        }
+        let entry = self
+            .entries
+            .remove(&from)
+            .ok_or_else(|| anyhow::anyhow!("no such entry: {}", from))?;
+        self.entries.insert(to, entry);
         Ok(())
     }
 

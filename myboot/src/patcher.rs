@@ -145,10 +145,9 @@ impl<'a> BootImagePatchOption<'a> {
         if let Some((ver, patch)) = self.override_os_version {
             if header.has_os_version_raw() {
                 let off = header_off + header.layout.offset_os_version as u64;
-                let os_ver = ((ver & 0x7f) << 14) | ((ver >> 8) & 0x7f) << 7;
-                let patch_val = (patch & 0x7f) << 4 | (0 & 0xf);
+                let combined = (ver << 11) | patch;
                 output.seek(SeekFrom::Start(off))?;
-                output.write_all(&(os_ver << 11 | patch_val).to_le_bytes())?;
+                output.write_all(&combined.to_le_bytes())?;
             }
         }
 
@@ -182,6 +181,8 @@ impl<'a> BootImagePatchOption<'a> {
         if pad > 0 {
             output.write_zeros(pad)?;
         }
+
+        let mut patched_entries: Option<Vec<(&[u8], u32, u32)>> = None;
 
         let ramdisk_off = output.seek(SeekFrom::Current(0))?;
 
@@ -228,6 +229,8 @@ impl<'a> BootImagePatchOption<'a> {
                     e.size = (pos_after - pos_before) as u32;
                 }
 
+                patched_entries = Some(new_entries.iter().map(|e| (e.data, e.size, e.offset)).collect());
+
                 ramdisk_sz = (output.seek(SeekFrom::Current(0))? - ramdisk_off) as u32;
             } else {
                 let r_fmt = ramdisk.compress_format;
@@ -264,17 +267,13 @@ impl<'a> BootImagePatchOption<'a> {
         }
 
         let _vendor_ramdisk_table_off = output.seek(SeekFrom::Current(0))?;
-        let vendor_ramdisk_table_sz = if let Some(ref ramdisk) = src.blocks.ramdisk {
-            if let Some(ref entries) = ramdisk.vendor_entries {
-                for entry in entries {
-                    let e_bytes = VendorRamdiskTableEntryPatch::serialize(entry.offset, entry.size, entry.entry_type.to_u32(), entry.name);
-                    output.write_all(&e_bytes)?;
-                }
-                align_block(output, header_off, page_sz)?;
-                entries.len() as u32 * 108
-            } else {
-                0
+        let vendor_ramdisk_table_sz = if let Some(ref entries) = patched_entries {
+            for (data, size, offset) in entries {
+                let e_bytes = VendorRamdiskTableEntryPatch::serialize(data, *size, *offset);
+                output.write_all(&e_bytes)?;
             }
+            align_block(output, header_off, page_sz)?;
+            entries.len() as u32 * 108
         } else {
             0
         };
@@ -292,14 +291,14 @@ impl<'a> BootImagePatchOption<'a> {
             avb_vbmeta_off = output.seek(SeekFrom::Current(0))?;
             output.write_all(avb.header_data)?;
 
-            let footer_pos = output.seek(SeekFrom::Current(0))?;
-
-            if footer_pos + AVB_FOOTER_SIZE as u64 > src.data.len() as u64 {
-                output.write_all(&src.data[payload_end as usize..(src.data.len() - AVB_FOOTER_SIZE)])?;
-                output.seek(SeekFrom::Start((src.data.len() - AVB_FOOTER_SIZE) as u64))?;
-            } else {
-                output.seek(SeekFrom::Start((src.data.len() - AVB_FOOTER_SIZE) as u64))?;
+            let current_pos = output.stream_position()?;
+            let footer_start = src.data.len() as u64 - AVB_FOOTER_SIZE as u64;
+            if current_pos < footer_start {
+                let zeros = vec![0u8; (footer_start - current_pos) as usize];
+                output.write_all(&zeros)?;
             }
+
+            output.seek(SeekFrom::Start(footer_start))?;
 
             let mut footer = avb.footer_data.to_vec();
             let vbmeta_off_idx = mod_offsets_AvbFooterLayout::offset_vbmeta_offset as usize;
@@ -461,13 +460,10 @@ fn align_block_size<W: Write + Seek>(output: &mut W, align: usize) -> Result<()>
 struct VendorRamdiskTableEntryPatch;
 
 impl VendorRamdiskTableEntryPatch {
-    fn serialize(offset: u32, size: u32, entry_type: u32, name: &[u8]) -> [u8; 108] {
-        let mut buf = [0u8; 108];
-        buf[0..4].copy_from_slice(&size.to_le_bytes());
-        buf[4..8].copy_from_slice(&offset.to_le_bytes());
-        buf[8..12].copy_from_slice(&entry_type.to_le_bytes());
-        let name_len = name.len().min(32);
-        buf[12..12 + name_len].copy_from_slice(&name[..name_len]);
+    fn serialize(original: &[u8], new_size: u32, new_offset: u32) -> Vec<u8> {
+        let mut buf = original.to_vec();
+        buf[0..4].copy_from_slice(&new_size.to_le_bytes());
+        buf[4..8].copy_from_slice(&new_offset.to_le_bytes());
         buf
     }
 }
