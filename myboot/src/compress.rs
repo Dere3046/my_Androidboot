@@ -253,7 +253,7 @@ impl Lz4BlockDecoder {
             if block_sz == 0 {
                 continue;
             }
-            let decompressed = lz4::block::decompress(&compressed[off..off + block_sz], None)
+            let decompressed = lz4::block::decompress(&compressed[off..off + block_sz], Some(LZ4_BLOCK_SIZE as i32))
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
             buf.extend_from_slice(&decompressed);
             off += block_sz;

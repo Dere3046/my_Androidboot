@@ -114,7 +114,7 @@ impl Cpio {
                 bail!("invalid cpio magic at offset {}", pos);
             }
 
-            let namesize = parse_hex(&data[pos + 94..pos + 100], 8)? as usize;
+            let namesize = parse_hex(&data[pos + 94..pos + 102], 8)? as usize;
             let filesize = parse_hex(&data[pos + 54..pos + 62], 8)? as usize;
             let mode = parse_hex(&data[pos + 14..pos + 22], 8)?;
             let uid = parse_hex(&data[pos + 30..pos + 38], 8)?;
