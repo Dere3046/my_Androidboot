@@ -117,10 +117,10 @@ impl Cpio {
             let namesize = parse_hex(&data[pos + 94..pos + 102], 8)? as usize;
             let filesize = parse_hex(&data[pos + 54..pos + 62], 8)? as usize;
             let mode = parse_hex(&data[pos + 14..pos + 22], 8)?;
-            let uid = parse_hex(&data[pos + 30..pos + 38], 8)?;
-            let gid = parse_hex(&data[pos + 38..pos + 46], 8)?;
-            let rdev_major = parse_hex(&data[pos + 46..pos + 54], 8)?;
-            let rdev_minor = parse_hex(&data[pos + 62..pos + 70], 8)?;
+            let uid = parse_hex(&data[pos + 22..pos + 30], 8)?;
+            let gid = parse_hex(&data[pos + 30..pos + 38], 8)?;
+            let rdev_major = parse_hex(&data[pos + 78..pos + 86], 8)?;
+            let rdev_minor = parse_hex(&data[pos + 86..pos + 94], 8)?;
 
             let hdr_end = pos + 110;
             let name_start = hdr_end;
@@ -134,6 +134,12 @@ impl Cpio {
 
             if name == "TRAILER!!!" {
                 break;
+            }
+            if name == "." || name == ".." {
+                let data_off = align_to(name_end, 4);
+                let data_end = data_off + filesize;
+                pos = align_to(data_end, 4);
+                continue;
             }
 
             let data_off = align_to(name_end, 4);
@@ -328,7 +334,8 @@ fn trim_nul(buf: &[u8]) -> &[u8] {
 
 fn write_entry(writer: &mut dyn Write, name: &str, entry: &CpioEntry, inode: u32) -> Result<()> {
     let namesize = name.len() + 1;
-    let filesize = entry.data.as_ref().map_or(0, |d| d.len());
+    let file_content = entry.data.as_ref().or(entry.symlink.as_ref());
+    let filesize = file_content.map_or(0, |d| d.len());
 
     let mut hdr = String::with_capacity(110);
     write!(&mut hdr, "070701")?;
@@ -357,7 +364,7 @@ fn write_entry(writer: &mut dyn Write, name: &str, entry: &CpioEntry, inode: u32
     }
 
     if filesize > 0 {
-        if let Some(data) = &entry.data {
+        if let Some(data) = file_content {
             writer.write_all(data)?;
         }
         let data_pad = align_padding(filesize, 4) as usize;
