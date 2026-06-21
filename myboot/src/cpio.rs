@@ -338,8 +338,9 @@ fn write_entry(writer: &mut dyn Write, name: &str, entry: &CpioEntry, inode: u32
     write!(&mut hdr, "{:08x}", entry.gid)?;
     write!(&mut hdr, "{:08x}", 1u32)?;
     write!(&mut hdr, "{:08x}", 0u32)?;
-    write!(&mut hdr, "{:08x}", 0u32)?;
     write!(&mut hdr, "{:08x}", filesize)?;
+    write!(&mut hdr, "{:08x}", 0u32)?;
+    write!(&mut hdr, "{:08x}", 0u32)?;
     write!(&mut hdr, "{:08x}", entry.rdev_major)?;
     write!(&mut hdr, "{:08x}", entry.rdev_minor)?;
     write!(&mut hdr, "{:08x}", namesize)?;

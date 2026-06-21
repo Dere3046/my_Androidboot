@@ -180,6 +180,7 @@ struct Lz4BlockEncoder<W: Write> {
     chunker: Chunker,
     out_buf: Box<[u8]>,
     total: u32,
+    started: bool,
 }
 
 impl<W: Write> Lz4BlockEncoder<W> {
@@ -190,6 +191,7 @@ impl<W: Write> Lz4BlockEncoder<W> {
             chunker: Chunker::new(LZ4_BLOCK_SIZE),
             out_buf: unsafe { Box::new_uninit_slice(out_sz).assume_init() },
             total: 0,
+            started: false,
         }
     }
 
@@ -209,6 +211,10 @@ impl<W: Write> Lz4BlockEncoder<W> {
 
 impl<W: Write> Write for Lz4BlockEncoder<W> {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if !self.started {
+            self.write.write_all(&LZ4_MAGIC_U32.to_le_bytes())?;
+            self.started = true;
+        }
         self.total += data.len() as u32;
         self.chunker.out_chunks(data, |chunk| {
             Self::encode_block(&mut self.write, &mut self.out_buf, chunk)
@@ -224,11 +230,12 @@ impl<W: Write> Write for Lz4BlockEncoder<W> {
 impl<W: Write> WriteFinish<W> for Lz4BlockEncoder<W> {
     fn finish(self: Box<Self>) -> std::io::Result<W> {
         let mut this = *self;
+        if !this.started {
+            this.write.write_all(&LZ4_MAGIC_U32.to_le_bytes())?;
+        }
         this.chunker.final_chunk(|chunk| {
             Self::encode_block(&mut this.write, &mut this.out_buf, chunk)
         })?;
-        this.write.write_all(&LZ4_MAGIC_U32.to_le_bytes())?;
-        this.write.write_all(&this.total.to_le_bytes())?;
         Ok(this.write)
     }
 }
